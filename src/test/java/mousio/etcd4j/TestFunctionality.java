@@ -9,6 +9,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.TimeoutException;
@@ -25,7 +26,7 @@ public class TestFunctionality {
 
   @Before
   public void setUp() throws Exception {
-    this.etcd = new EtcdClient();
+    this.etcd = new EtcdClient(URI.create("http://etcd-a01.sg.internal:4001"),URI.create("http://etcd-a02.sg.internal:4001"), URI.create("http://tcd-a03.sg.internal:4001"));
   }
 
   /**
@@ -120,7 +121,11 @@ public class TestFunctionality {
       @Override public void run() {
         try {
           etcd.put("etcd4j_test/test", "changed").send().get();
-        } catch (IOException | EtcdException | TimeoutException e) {
+        } catch (IOException e) {
+          fail();
+        } catch (EtcdException e) {
+          fail();
+        } catch (TimeoutException e) {
           fail();
         }
       }

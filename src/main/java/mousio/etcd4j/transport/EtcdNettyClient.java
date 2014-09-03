@@ -10,7 +10,7 @@ import io.netty.handler.codec.http.multipart.HttpPostRequestEncoder;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.util.concurrent.DefaultPromise;
-import io.netty.util.concurrent.Promise;
+import io.netty.util.concurrent.GenericFutureListener;
 import mousio.etcd4j.promises.EtcdResponsePromise;
 import mousio.etcd4j.requests.EtcdKeyRequest;
 import mousio.etcd4j.requests.EtcdRequest;
@@ -31,13 +31,54 @@ public class EtcdNettyClient implements EtcdClientImpl {
   private final URI[] uris;
   protected int lastWorkingUriIndex = 0;
 
+  class MyChannelListener<R> implements GenericFutureListener<ChannelFuture>{
+      private final ConnectionCounter _counter;
+      private String _url;
+      private Channel _channel;
+      private EtcdRequest<R> _etcdRequest;
+
+      MyChannelListener(EtcdRequest<R> etcdRequest, ConnectionCounter counter, String url,Channel channel ){
+          _etcdRequest = etcdRequest;
+          _counter = counter;
+          _url = url;
+          _channel = channel;
+      }
+      @Override
+      public void operationComplete(ChannelFuture f) throws Exception {
+          if (!f.isSuccess()) {
+              _counter.uriIndex++;
+              if (_counter.uriIndex >= uris.length) {
+                  if (_counter.retryCount >= 3) {
+                      _etcdRequest.getPromise().setException(f.cause());
+                      return;
+                  }
+                  _counter.retryCount++;
+                  _counter.uriIndex = 0;
+              }
+
+              connect(_etcdRequest, _counter, _url);
+              return;
+          }
+
+          lastWorkingUriIndex = _counter.uriIndex;
+
+          modifyPipeLine(_etcdRequest, f.channel().pipeline());
+
+          HttpRequest httpRequest = createHttpRequest(_url, _etcdRequest);
+
+          // send request
+          _channel.writeAndFlush(httpRequest);
+      }
+  }
+
+
   /**
    * Constructor
    *
    * @param sslContext SSL context if connecting with SSL. Null if not connecting with SSL.
    * @param uri        to connect to
    */
-  public EtcdNettyClient(SslContext sslContext, URI... uri) {
+  public EtcdNettyClient(final SslContext sslContext, URI... uri) {
     this.eventLoopGroup = new NioEventLoopGroup();
 
     this.uris = uri;
@@ -69,7 +110,7 @@ public class EtcdNettyClient implements EtcdClientImpl {
    */
   public <R> EtcdResponsePromise<R> send(EtcdRequest<R> etcdRequest) throws IOException {
     if (etcdRequest.getPromise() == null) {
-      EtcdResponsePromise<R> responsePromise = new EtcdResponsePromise<>();
+      EtcdResponsePromise<R> responsePromise = new EtcdResponsePromise<R>();
       etcdRequest.setPromise(responsePromise);
     }
 
@@ -104,6 +145,8 @@ public class EtcdNettyClient implements EtcdClientImpl {
     connect(request, counter, url);
   }
 
+
+
   /**
    * Connect to server
    *
@@ -120,34 +163,10 @@ public class EtcdNettyClient implements EtcdClientImpl {
 
     Channel channel = connectFuture.channel();
     etcdRequest.getPromise().attachNettyPromise(
-        new DefaultPromise<>(connectFuture.channel().eventLoop())
+        new DefaultPromise<R>(connectFuture.channel().eventLoop())
     );
 
-    connectFuture.addListener((ChannelFuture f) -> {
-      if (!f.isSuccess()) {
-        counter.uriIndex++;
-        if (counter.uriIndex >= uris.length) {
-          if (counter.retryCount >= 3) {
-            etcdRequest.getPromise().setException(f.cause());
-            return;
-          }
-          counter.retryCount++;
-          counter.uriIndex = 0;
-        }
-
-        connect(etcdRequest, counter, url);
-        return;
-      }
-
-      lastWorkingUriIndex = counter.uriIndex;
-
-      modifyPipeLine(etcdRequest, f.channel().pipeline());
-
-      HttpRequest httpRequest = createHttpRequest(url, etcdRequest);
-
-      // send request
-      channel.writeAndFlush(httpRequest);
-    });
+    connectFuture.addListener(new MyChannelListener<R>(etcdRequest,counter,url,channel));
   }
 
   /**
@@ -158,7 +177,7 @@ public class EtcdNettyClient implements EtcdClientImpl {
    * @param <R>      Type of Response
    */
   @SuppressWarnings("unchecked")
-  private <R> void modifyPipeLine(EtcdRequest<R> req, ChannelPipeline pipeline) {
+  private <R> void modifyPipeLine(final EtcdRequest<R> req, ChannelPipeline pipeline) {
     if (req.getTimeout() != -1) {
       pipeline.addFirst(new ChannelHandlerAdapter() {
         @Override
@@ -177,9 +196,9 @@ public class EtcdNettyClient implements EtcdClientImpl {
       pipeline.addLast(new SimpleChannelInboundHandler<FullHttpResponse>() {
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, FullHttpResponse msg) throws Exception {
-          ((Promise<String>) ((EtcdVersionRequest) req).getPromise())
+          ((EtcdVersionRequest) req).getPromise().getNettyPromise()
               .setSuccess(
-                  msg.content().toString(Charset.defaultCharset()));
+                      msg.content().toString(Charset.defaultCharset()));
         }
       });
     } else {

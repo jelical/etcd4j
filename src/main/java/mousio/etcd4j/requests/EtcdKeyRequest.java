@@ -16,7 +16,7 @@ import java.util.Map;
 public class EtcdKeyRequest extends EtcdRequest<EtcdKeysResponse> {
   protected String key;
 
-  protected final Map<String, String> requestParams = new HashMap<>();
+  protected final Map<String, String> requestParams = new HashMap<String, String>();
 
   /**
    * Constructs an EtcdKeysRequest

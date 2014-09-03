@@ -5,10 +5,10 @@ import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import io.netty.buffer.ByteBuf;
+import org.joda.time.DateTime;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -71,22 +71,16 @@ public class EtcdKeysResponseParser {
 
     JsonToken token = parser.getCurrentToken();
     while (token != JsonToken.END_OBJECT && token != null) {
-      switch (parser.getCurrentName()) {
-        case CAUSE:
+      if( parser.getCurrentName() == CAUSE)
           exception.etcdCause = parser.nextTextValue();
-          break;
-        case MESSAGE:
+      else if( parser.getCurrentName() == MESSAGE)
           exception.etcdMessage = parser.nextTextValue();
-          break;
-        case ERRORCODE:
+      else if( parser.getCurrentName() == ERRORCODE)
           exception.errorCode = parser.nextIntValue(0);
-          break;
-        case INDEX:
+      else if( parser.getCurrentName() == INDEX)
           exception.index = parser.nextIntValue(0);
-          break;
-        default:
+      else
           throw new JsonParseException("Unknown field in exception " + parser.getCurrentName(), parser.getCurrentLocation());
-      }
 
       token = parser.nextToken();
     }
@@ -145,37 +139,37 @@ public class EtcdKeysResponseParser {
     EtcdKeysResponse.EtcdNode node = new EtcdKeysResponse.EtcdNode();
 
     while (token != JsonToken.END_OBJECT && token != null) {
-      switch (parser.getCurrentName()) {
-        case KEY:
-          node.key = parser.nextTextValue();
-          break;
-        case CREATEDINDEX:
-          node.createdIndex = parser.nextIntValue(0);
-          break;
-        case MODIFIEDINDEX:
-          node.modifiedIndex = parser.nextIntValue(0);
-          break;
-        case VALUE:
-          node.value = parser.nextTextValue();
-          break;
-        case DIR:
-          node.dir = parser.nextBooleanValue();
-          break;
-        case EXPIRATION:
-          node.expiration = ZonedDateTime.parse(parser.nextTextValue());
-          break;
-        case TTL:
-          node.ttl = parser.nextIntValue(0);
-          break;
-        case NODES:
-          parser.nextToken();
-          node.nodes = parseNodes(parser);
-          break;
-        default:
-          throw new JsonParseException("Unknown field " + parser.getCurrentName(), parser.getCurrentLocation());
-      }
 
-      token = parser.nextToken();
+        if (parser.getCurrentName()== KEY)
+          node.key = parser.nextTextValue();
+
+        else if (parser.getCurrentName()==CREATEDINDEX)
+          node.createdIndex = parser.nextIntValue(0);
+
+        else if (parser.getCurrentName()== MODIFIEDINDEX)
+          node.modifiedIndex = parser.nextIntValue(0);
+
+        else if (parser.getCurrentName()== VALUE)
+          node.value = parser.nextTextValue();
+
+        else if (parser.getCurrentName()== DIR)
+          node.dir = parser.nextBooleanValue();
+
+        else if (parser.getCurrentName()== EXPIRATION)
+          node.expiration = DateTime.parse(parser.nextTextValue());
+
+        else if (parser.getCurrentName()== TTL)
+          node.ttl = parser.nextIntValue(0);
+
+        else if (parser.getCurrentName()== NODES) {
+            parser.nextToken();
+            node.nodes = parseNodes(parser);
+        }
+        else
+          throw new JsonParseException("Unknown field " + parser.getCurrentName(), parser.getCurrentLocation());
+
+        token = parser.nextToken();
+
     }
 
     return node;
@@ -192,7 +186,7 @@ public class EtcdKeysResponseParser {
     if (parser.getCurrentToken() != JsonToken.START_ARRAY) {
       throw new JsonParseException("Expecting an array of nodes", parser.getCurrentLocation());
     }
-    List<EtcdKeysResponse.EtcdNode> nodes = new ArrayList<>();
+    List<EtcdKeysResponse.EtcdNode> nodes = new ArrayList<EtcdKeysResponse.EtcdNode>();
 
     JsonToken token = parser.nextToken();
     while (token != JsonToken.END_ARRAY && token != null) {
